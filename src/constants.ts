@@ -9,8 +9,8 @@ export const JUMP_V = 390;
 export const DOUBLE_JUMP_V = 340;
 export const FAST_FALL = 1400;
 
-export const RUN_TIME = 75; // seconds until the departure gate
-export const CHECKPOINTS = [25, 50];
+export const RUN_TIME = 45; // seconds until the office door
+export const CHECKPOINTS = [15, 30];
 export const STAGE_NAMES = ['DOWNTOWN', 'GOLF CLUB', 'SILICON VALLEY'];
 
 export const SPEED_START = 150;
