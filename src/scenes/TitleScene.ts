@@ -35,7 +35,7 @@ export class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets: l2, y: 91, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut', delay: 200 });
     txt(this, W / 2, 118, 'THE GREAT GREEN CARD HEIST', { origin: [0.5, 0.5], tint: PAL.white });
 
-    const start = txt(this, W / 2, 146, 'PRESS SPACE OR TAP TO START', { origin: [0.5, 0.5], tint: PAL.goldL });
+    const start = txt(this, W / 2, 146, 'PRESS SPACE OR TAP TO CREATE YOUR HERO', { origin: [0.5, 0.5], tint: PAL.goldL });
     this.tweens.add({ targets: start, alpha: 0.15, duration: 520, yoyo: true, repeat: -1 });
     const best = store.getBest();
     txt(this, W / 2, 162, `BEST ${String(best).padStart(6, '0')}`, { origin: [0.5, 0.5], tint: PAL.sky });
@@ -73,7 +73,7 @@ export class TitleScene extends Phaser.Scene {
     sfx.click();
     sfx.musicStart('title');
     this.cameras.main.fadeOut(250, 0, 0, 0);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Intro'));
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Create'));
   }
 
   update(_t: number, delta: number): void {

@@ -5,6 +5,7 @@ import { txt } from '../gfx/font';
 import { panelKey, bubbleKey, HERO_HAND, HANKY_ORIGIN } from '../gfx/sprites';
 import { PixelButton } from '../ui/Button';
 import { sfx } from '../audio/Sfx';
+import { getCharacter } from '../character/agentClient';
 
 /** Short skippable opening: the heist of the Green Card hanky. */
 export class IntroScene extends Phaser.Scene {
@@ -71,7 +72,7 @@ export class IntroScene extends Phaser.Scene {
     });
     at(6.0, () => { say('TRUMP', "HEY!! THAT'S MY GREEN CARD! COME BACK HERE!"); sfx.shout(); boss.setFrame(7); });
     at(7.6, () => {
-      say('YOU', 'SEE YOU AT MY NEW JOB IN SILICON VALLEY!');
+      say(getCharacter().name, getCharacter().catchphrase);
       this.hero.play('hero_run');
       this.tweens.add({ targets: this.hero, x: W + 30, duration: 1300 });
     });

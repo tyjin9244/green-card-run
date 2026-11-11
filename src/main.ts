@@ -4,6 +4,7 @@ import { BootScene } from './scenes/BootScene';
 import { TitleScene } from './scenes/TitleScene';
 import { IntroScene } from './scenes/IntroScene';
 import { GameScene } from './scenes/GameScene';
+import { CreateScene } from './scenes/CreateScene';
 import { sfx } from './audio/Sfx';
 
 const game = new Phaser.Game({
@@ -17,7 +18,7 @@ const game = new Phaser.Game({
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   input: { activePointers: 4 },
   audio: { noAudio: true },
-  scene: [BootScene, TitleScene, IntroScene, GameScene]
+  scene: [BootScene, TitleScene, CreateScene, IntroScene, GameScene]
 });
 
 // Audio may only start after a user gesture.
@@ -30,6 +31,7 @@ document.addEventListener('touchmove', stop, { passive: false });
 document.addEventListener('gesturestart', stop, { passive: false });
 document.addEventListener('dblclick', stop, { passive: false });
 window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLElement && e.target.closest('input, textarea, button')) return;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
 });
 

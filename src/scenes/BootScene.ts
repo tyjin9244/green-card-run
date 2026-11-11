@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { buildFont } from '../gfx/font';
 import { buildSprites } from '../gfx/sprites';
 import { buildBackgrounds } from '../gfx/backgrounds';
+import { applyCharacter } from '../gfx/sprites';
+import { getCharacter } from '../character/agentClient';
 
 /** Generates every texture procedurally, registers animations, then routes. */
 export class BootScene extends Phaser.Scene {
@@ -11,6 +13,7 @@ export class BootScene extends Phaser.Scene {
     buildFont(this);
     buildSprites(this);
     buildBackgrounds(this);
+    applyCharacter(this, getCharacter());
 
     const anim = (key: string, tex: string, frames: number[], frameRate: number, repeat = -1) =>
       this.anims.create({ key, frames: frames.map((f) => ({ key: tex, frame: f })), frameRate, repeat });
@@ -28,6 +31,7 @@ export class BootScene extends Phaser.Scene {
     const q = new URLSearchParams(location.search);
     const target = q.get('scene');
     if (target === 'game') this.scene.start('Game');
+    else if (target === 'create') this.scene.start('Create');
     else if (target === 'intro') this.scene.start('Intro');
     else this.scene.start('Title');
   }

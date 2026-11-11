@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { PixelCanvas } from './PixelCanvas';
 import { stampText, textWidth } from './font';
 import { PAL } from '../constants';
+import { DEFAULT_CHARACTER, hexToInt, type CharacterSpec, type Hat, type Eyewear } from '../character/spec';
 
 const O = PAL.out;
 
@@ -22,6 +23,13 @@ export function addImage(scene: Phaser.Scene, key: string, pc: PixelCanvas): voi
 
 /* ------------------------------------------------------------------ HERO */
 
+/** Darken / lighten a 0xRRGGBB color by factor f (<1 darker, >1 lighter). */
+function shade(c: number, f: number): number {
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(f > 1 ? v + (255 - v) * (f - 1) : v * f)));
+  return (ch((c >> 16) & 255) << 16) | (ch((c >> 8) & 255) << 8) | ch(c & 255);
+}
+
+/** Live hero palette + look; rewritten by applyCharacter(). */
 const HC = {
   skin: 0xf4c49a, skinS: 0xd8946a, mouth: 0x7a2a2a,
   beanie: 0xb13e53, beanieL: 0xe0606a, pom: 0xf4f4f4,
@@ -30,6 +38,21 @@ const HC = {
   pants: 0x3b5dc9, pantsS: 0x29408f,
   shoe: 0x29366f, shoeS: 0x1f2547
 };
+let heroHat: Hat = 'beanie';
+let heroEyes: Eyewear = 'mask';
+
+function setLook(spec: CharacterSpec): void {
+  const p = spec.palette;
+  const d = DEFAULT_CHARACTER.palette;
+  HC.skin = hexToInt(p.skin, hexToInt(d.skin, 0)); HC.skinS = shade(HC.skin, 0.82);
+  HC.beanie = hexToInt(p.hat, 0xb13e53); HC.beanieL = shade(HC.beanie, 1.3);
+  HC.pom = hexToInt(p.hatAccent, 0xf4f4f4);
+  HC.stripeW = hexToInt(p.shirtA, 0xeef0f4); HC.stripeK = hexToInt(p.shirtB, 0x3a3f58);
+  HC.pants = hexToInt(p.pants, 0x3b5dc9); HC.pantsS = shade(HC.pants, 0.7);
+  HC.shoe = hexToInt(p.shoes, 0x29366f); HC.shoeS = shade(HC.shoe, 0.7);
+  heroHat = spec.hat;
+  heroEyes = spec.eyewear;
+}
 
 interface HeroPose {
   legF: number; legB: number; raiseF?: number; raiseB?: number;
@@ -55,6 +78,74 @@ function heroLeg(c: PixelCanvas, off: number, raise: number, back: boolean): voi
   c.rect(10 + off, 25 - raise, 4, 2, s);
 }
 
+/**
+ * Head + hat + eyewear, in "upright" coordinates (face x7..15, y6..11)
+ * shifted by (ox, oy). Shared by run frames, the slide frame and the HUD icon.
+ */
+function heroHead(c: PixelCanvas, ox: number, oy: number, o: { mouth?: boolean; dizzy?: boolean } = {}): void {
+  const X = (x: number) => x + ox;
+  const Y = (y: number) => y + oy;
+  c.rect(X(7), Y(6), 8, 6, HC.skin);
+  c.vline(X(7), Y(6), 6, HC.skinS);
+  c.set(X(15), Y(9), HC.skin);
+  c.set(X(15), Y(10), HC.skinS);
+  c.set(X(9), Y(9), HC.skinS);
+
+  // eyewear
+  let eye: number = O;
+  if (heroEyes === 'mask') { c.rect(X(9), Y(7), 7, 2, HC.mask); eye = HC.eye; }
+  else if (heroEyes === 'shades') { c.rect(X(10), Y(7), 6, 2, O); c.set(X(11), Y(7), 0x5a6d9a); c.set(X(14), Y(7), 0x5a6d9a); }
+  else if (heroEyes === 'glasses') {
+    c.rect(X(10), Y(7), 3, 2, 0xcfeaff); c.rect(X(13), Y(7), 3, 2, 0xcfeaff);
+    c.hline(X(10), Y(7), 6, O);
+  }
+  if (heroEyes !== 'shades') {
+    if (o.dizzy) {
+      c.set(X(11), Y(7), eye); c.set(X(12), Y(8), eye);
+      c.set(X(14), Y(7), eye); c.set(X(13), Y(8), eye);
+    } else {
+      c.set(X(11), Y(8), eye); c.set(X(14), Y(8), eye);
+    }
+  }
+  if (o.mouth) c.rect(X(12), Y(10), 2, 2, HC.mouth); else c.hline(X(12), Y(10), 2, HC.skinS);
+
+  // headgear
+  const hat = HC.beanie, hatL = HC.beanieL, acc = HC.pom;
+  switch (heroHat) {
+    case 'beanie':
+      c.hline(X(8), Y(2), 6, hat);
+      c.rect(X(7), Y(3), 8, 3, hat);
+      c.hline(X(6), Y(5), 10, hatL);
+      c.rect(X(5), Y(1), 2, 2, acc);
+      break;
+    case 'cap':
+      c.hline(X(8), Y(2), 6, hat);
+      c.rect(X(7), Y(3), 8, 3, hat);
+      c.hline(X(9), Y(3), 4, hatL);
+      c.hline(X(11), Y(5), 7, acc);
+      c.set(X(11), Y(2), acc);
+      break;
+    case 'hair':
+      c.rect(X(7), Y(3), 8, 3, hat);
+      c.vline(X(7), Y(6), 3, hat);
+      c.set(X(8), Y(2), hat); c.set(X(10), Y(1), hat); c.set(X(10), Y(2), hat);
+      c.set(X(12), Y(2), hat); c.set(X(13), Y(1), hat); c.set(X(14), Y(2), hat);
+      c.hline(X(9), Y(3), 4, hatL);
+      break;
+    case 'headband':
+      c.rect(X(7), Y(3), 8, 2, acc);
+      c.hline(X(8), Y(2), 6, acc);
+      c.hline(X(7), Y(5), 9, hat);
+      c.hline(X(4), Y(5), 3, hat); c.set(X(4), Y(6), hat);
+      break;
+    case 'none':
+      c.rect(X(7), Y(4), 8, 2, HC.skin);
+      c.hline(X(8), Y(3), 6, HC.skin);
+      c.vline(X(7), Y(4), 2, HC.skinS);
+      break;
+  }
+}
+
 function heroUpright(o: HeroPose): PixelCanvas {
   const c = new PixelCanvas(22, 28);
   const b = o.bob ?? 0;
@@ -62,25 +153,7 @@ function heroUpright(o: HeroPose): PixelCanvas {
   heroArm(c, o.armB, b, true);
   c.rect(9, 19 + b, 5, 2, HC.pants);
   for (let y = 12; y <= 18; y++) c.hline(8, y + b, 6, y % 2 === 0 ? HC.stripeW : HC.stripeK);
-  // head
-  c.rect(7, 6 + b, 8, 6, HC.skin);
-  c.vline(7, 6 + b, 6, HC.skinS);
-  c.set(15, 9 + b, HC.skin);
-  c.set(15, 10 + b, HC.skinS);
-  c.set(9, 9 + b, HC.skinS);
-  c.rect(9, 7 + b, 7, 2, HC.mask);
-  if (o.dizzy) {
-    c.set(11, 7 + b, HC.eye); c.set(12, 8 + b, HC.eye);
-    c.set(14, 7 + b, HC.eye); c.set(13, 8 + b, HC.eye);
-  } else {
-    c.set(11, 8 + b, HC.eye); c.set(14, 8 + b, HC.eye);
-  }
-  if (o.mouth) c.rect(12, 10 + b, 2, 2, HC.mouth); else c.hline(12, 10 + b, 2, HC.skinS);
-  // beanie
-  c.hline(8, 2 + b, 6, HC.beanie);
-  c.rect(7, 3 + b, 8, 3, HC.beanie);
-  c.hline(6, 5 + b, 10, HC.beanieL);
-  c.rect(5, 1 + b, 2, 2, HC.pom);
+  heroHead(c, 0, b, o);
   heroLeg(c, o.legF, o.raiseF ?? 0, false);
   heroArm(c, o.armF, b, false);
   return c.outline(O);
@@ -96,20 +169,17 @@ function heroSlide(): PixelCanvas {
   // legs forward + shoes toes up
   c.rect(16, 23, 4, 3, HC.pants);
   c.rect(19, 21, 2, 5, HC.shoe);
-  // head
-  c.rect(3, 19, 7, 6, HC.skin);
-  c.vline(3, 19, 6, HC.skinS);
-  c.rect(5, 20, 5, 2, HC.mask);
-  c.set(6, 21, HC.eye); c.set(9, 21, HC.eye);
-  c.set(10, 22, HC.skin);
-  c.hline(7, 23, 2, HC.skinS);
-  c.rect(3, 16, 7, 3, HC.beanie);
-  c.hline(2, 18, 9, HC.beanieL);
-  c.rect(1, 15, 2, 2, HC.pom);
+  heroHead(c, -5, 13);
   // front arm on ground
   c.rect(13, 20, 3, 2, HC.stripeW);
   c.rect(15, 19, 2, 2, HC.skin);
   return c.outline(O);
+}
+
+function heroIcon(): PixelCanvas {
+  const hh = new PixelCanvas(14, 12);
+  heroHead(hh, -4, -1);
+  return hh.outline(O);
 }
 
 /** Frame index → back-hand position (where the hanky is held). */
@@ -135,7 +205,33 @@ export function buildHero(scene: Phaser.Scene): void {
     else if (p.armB === 3) HERO_HAND.push({ x: 4, y: 9 + (p.bob ?? 0) });
     else HERO_HAND.push({ x: 4, y: 15 + (p.bob ?? 0) });
   });
-  addSheet(scene, 'hero', frames);
+  if (scene.textures.exists('hero')) {
+    redraw(scene, 'hero', sheetCanvas(frames));
+    redraw(scene, 'icon_hero', heroIcon());
+  } else {
+    addSheet(scene, 'hero', frames);
+    addImage(scene, 'icon_hero', heroIcon());
+  }
+}
+
+function sheetCanvas(frames: PixelCanvas[]): PixelCanvas {
+  const sheet = new PixelCanvas(frames[0].w * frames.length, frames[0].h);
+  frames.forEach((f, i) => sheet.blit(f, i * f.w, 0));
+  return sheet;
+}
+
+/** Repaint an existing canvas texture in place (keeps frames + animations valid). */
+function redraw(scene: Phaser.Scene, key: string, pc: PixelCanvas): void {
+  const tex = scene.textures.get(key) as Phaser.Textures.CanvasTexture;
+  tex.context.clearRect(0, 0, tex.width, tex.height);
+  tex.context.drawImage(pc.toCanvas(), 0, 0);
+  tex.refresh();
+}
+
+/** Re-skin the hero (all frames + HUD icon) from an agent-generated spec. */
+export function applyCharacter(scene: Phaser.Scene, spec: CharacterSpec): void {
+  setLook(spec);
+  buildHero(scene);
 }
 
 /* --------------------------------------------------------------- CHASER */
@@ -574,10 +670,6 @@ function icons(scene: Phaser.Scene): void {
   head.rect(3, 1, 10, 3, TC.hair).rect(10, 3, 5, 2, TC.hair).hline(5, 1, 6, TC.hairL).rect(2, 3, 2, 5, TC.hair);
   addImage(scene, 'icon_chaser', head.outline(O));
 
-  const hh = new PixelCanvas(12, 12);
-  hh.rect(2, 4, 8, 6, HC.skin).rect(3, 5, 7, 2, O).set(5, 6, 0xffffff).set(8, 6, 0xffffff);
-  hh.rect(2, 1, 8, 3, HC.beanie).hline(1, 3, 10, HC.beanieL);
-  addImage(scene, 'icon_hero', hh.outline(O));
 
   const bc = new PixelCanvas(14, 12);
   bc.rect(1, 3, 12, 8, 0xa86f48).hline(1, 3, 12, 0xd09a6a).rect(5, 1, 4, 2, 0x6a4028).hline(1, 6, 12, 0x6a4028).rect(6, 5, 2, 3, PAL.gold);
