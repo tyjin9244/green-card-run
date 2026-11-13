@@ -1,7 +1,7 @@
 /**
  * Character-creation agent.
  *
- *   INPUT : POST /api/character  { "prompt": "커피 중독 개발자, 빨간 모자, 선글라스" }
+ *   INPUT : POST /api/character  { "prompt": "coffee-addicted dev, red cap, sunglasses" }
  *   OUTPUT: 200 { "character": CharacterSpec, "source": "ai" }
  *
  * The agent turns a free-form description (any language) into a CharacterSpec
@@ -22,17 +22,23 @@ export const characterSchema = z.object({
   name: ascii(10).describe('short in-game name, UPPERCASE A-Z only, max 10 chars'),
   title: ascii(20).describe('punchy English epithet, e.g. "CODE NINJA"'),
   catchphrase: ascii(40).describe('what the hero shouts while fleeing with the green card'),
-  bio: z.string().max(200).describe("1-2 sentence bio written in the SAME language as the user's description"),
-  hat: z.enum(['beanie', 'cap', 'hair', 'headband', 'none']),
-  eyewear: z.enum(['mask', 'glasses', 'shades', 'none']),
+  bio: z.string().max(200).describe('1-2 sentence funny bio in English'),
+  hat: z.enum(['beanie', 'cap', 'hair', 'long', 'mohawk', 'afro', 'headband', 'tophat', 'cowboy', 'crown', 'helmet', 'none'])
+    .describe('head: hair styles (hair, long, mohawk, afro) use palette.hair; hats use palette.hat; none = bald'),
+  eyewear: z.enum(['mask', 'glasses', 'shades', 'visor', 'monocle', 'eyepatch', 'none']),
+  face: z.enum(['none', 'mustache', 'beard', 'stubble']).describe('facial hair, drawn in palette.hair'),
+  outfit: z.enum(['stripes', 'solid', 'tee', 'hoodie', 'suit', 'labcoat']).describe('suit: shirtA jacket + shirtB tie; labcoat: white coat over shirtA'),
+  extra: z.enum(['none', 'backpack', 'cape', 'scarf']).describe('accessory, drawn in palette.accent'),
   palette: z.object({
     skin: hex,
-    hat: hex.describe('color of the beanie / cap / hair / headband'),
-    hatAccent: hex.describe('pom-pom, cap brim, or hair color under a headband'),
-    shirtA: hex.describe('shirt stripe color 1'),
-    shirtB: hex.describe('shirt stripe color 2 (contrast with shirtA)'),
+    hair: hex.describe('hair and facial hair color'),
+    hat: hex.describe('beanie / cap / headband / top hat / cowboy hat / crown / helmet color'),
+    hatAccent: hex.describe('pom-pom, cap brim, hat band, crown jewels, mohawk tips'),
+    shirtA: hex.describe('main outfit color'),
+    shirtB: hex.describe('secondary outfit color: stripes, tie, logo, trim (contrast with shirtA)'),
     pants: hex,
-    shoes: hex
+    shoes: hex,
+    accent: hex.describe('backpack / cape / scarf color')
   })
 });
 
@@ -46,14 +52,16 @@ where the hero snatches a green card from Trump and runs to a Silicon Valley job
 Turn the player's description (any language) into ONE playable hero.
 - The sprite is only 22x28 px: pick bold, readable colors. Shirt stripes must contrast; clothes
   must stand out against a dark navy outline (#1a1c2c) and a bright city/grass background.
-- Choose hat and eyewear from the allowed options that best match the description;
-  use "mask" only for sneaky/thief vibes. If unspecified, invent something fitting and fun.
+- Pick head, eyewear, face, outfit and extra from the allowed options to match the description.
+  Use the whole range (e.g. scientist -> labcoat, CEO -> suit, pirate -> eyepatch + beard,
+  royalty -> crown + cape, astronaut -> helmet + visor). Use "mask" only for sneaky/thief vibes.
+  If something is unspecified, invent a fitting, fun choice instead of defaulting.
 - name/title/catchphrase are rendered with an ASCII-only pixel font: UPPERCASE English only.
-  Transliterate non-English names (e.g. 지민 -> JIMIN).
-- bio is shown in the menu: write it in the user's language.
+  Transliterate non-English names (e.g. Korean Jimin -> JIMIN).
+- bio is shown in the menu: write it in English.
 - Keep it playful parody; no slurs, no real private people.`,
   output: Output.object({ schema: characterSchema }),
-  maxOutputTokens: 600
+  maxOutputTokens: 800
 });
 
 export async function generateCharacter(prompt: string): Promise<GeneratedCharacter> {
@@ -80,6 +88,9 @@ export async function POST(request: Request): Promise<Response> {
     return json({ character, source: 'ai' });
   } catch (err) {
     console.error('character agent failed', err);
-    return json({ error: 'Character generation failed' }, 502);
+    const billing = /credit card|customer_verification/i.test(String((err as Error)?.message ?? err));
+    return billing
+      ? json({ error: 'AI Gateway needs billing set up (add a card in the Vercel dashboard)', code: 'billing' }, 503)
+      : json({ error: 'Character generation failed' }, 502);
   }
 }

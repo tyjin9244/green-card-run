@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { PixelCanvas } from './PixelCanvas';
 import { stampText, textWidth } from './font';
 import { PAL } from '../constants';
-import { DEFAULT_CHARACTER, hexToInt, type CharacterSpec, type Hat, type Eyewear } from '../character/spec';
+import { DEFAULT_CHARACTER, hexToInt, type CharacterSpec } from '../character/spec';
 
 const O = PAL.out;
 
@@ -32,26 +32,30 @@ function shade(c: number, f: number): number {
 /** Live hero palette + look; rewritten by applyCharacter(). */
 const HC = {
   skin: 0xf4c49a, skinS: 0xd8946a, mouth: 0x7a2a2a,
-  beanie: 0xb13e53, beanieL: 0xe0606a, pom: 0xf4f4f4,
+  hair: 0x4a2f20, hairL: 0x7a5440, hairS: 0x2e1c12,
+  hat: 0xb13e53, hatL: 0xe0606a, hatS: 0x7a2a3a, acc: 0xf4f4f4,
   mask: O, eye: 0xffffff,
-  stripeW: 0xeef0f4, stripeK: 0x3a3f58,
+  shirtA: 0xeef0f4, shirtAS: 0xbcc0cc, shirtB: 0x3a3f58,
   pants: 0x3b5dc9, pantsS: 0x29408f,
-  shoe: 0x29366f, shoeS: 0x1f2547
+  shoe: 0x29366f, shoeS: 0x1f2547,
+  gear: 0xd8282b, gearS: 0x97191c
 };
-let heroHat: Hat = 'beanie';
-let heroEyes: Eyewear = 'mask';
+let look: Pick<CharacterSpec, 'hat' | 'eyewear' | 'face' | 'outfit' | 'extra'> = DEFAULT_CHARACTER;
 
 function setLook(spec: CharacterSpec): void {
   const p = spec.palette;
   const d = DEFAULT_CHARACTER.palette;
-  HC.skin = hexToInt(p.skin, hexToInt(d.skin, 0)); HC.skinS = shade(HC.skin, 0.82);
-  HC.beanie = hexToInt(p.hat, 0xb13e53); HC.beanieL = shade(HC.beanie, 1.3);
-  HC.pom = hexToInt(p.hatAccent, 0xf4f4f4);
-  HC.stripeW = hexToInt(p.shirtA, 0xeef0f4); HC.stripeK = hexToInt(p.shirtB, 0x3a3f58);
-  HC.pants = hexToInt(p.pants, 0x3b5dc9); HC.pantsS = shade(HC.pants, 0.7);
-  HC.shoe = hexToInt(p.shoes, 0x29366f); HC.shoeS = shade(HC.shoe, 0.7);
-  heroHat = spec.hat;
-  heroEyes = spec.eyewear;
+  const col = (v: string, fb: string) => hexToInt(v, hexToInt(fb, 0));
+  HC.skin = col(p.skin, d.skin); HC.skinS = shade(HC.skin, 0.82);
+  HC.hair = col(p.hair, d.hair); HC.hairL = shade(HC.hair, 1.35); HC.hairS = shade(HC.hair, 0.7);
+  HC.hat = col(p.hat, d.hat); HC.hatL = shade(HC.hat, 1.3); HC.hatS = shade(HC.hat, 0.7);
+  HC.acc = col(p.hatAccent, d.hatAccent);
+  HC.shirtA = col(p.shirtA, d.shirtA); HC.shirtAS = shade(HC.shirtA, 0.78);
+  HC.shirtB = col(p.shirtB, d.shirtB);
+  HC.pants = col(p.pants, d.pants); HC.pantsS = shade(HC.pants, 0.7);
+  HC.shoe = col(p.shoes, d.shoes); HC.shoeS = shade(HC.shoe, 0.7);
+  HC.gear = col(p.accent, d.accent); HC.gearS = shade(HC.gear, 0.7);
+  look = { hat: spec.hat, eyewear: spec.eyewear, face: spec.face, outfit: spec.outfit, extra: spec.extra };
 }
 
 interface HeroPose {
@@ -59,8 +63,17 @@ interface HeroPose {
   armF: number; armB: number; bob?: number; mouth?: boolean; dizzy?: boolean;
 }
 
+/** Sleeve colors for the current outfit: [front, back]. */
+function sleeves(): [number, number] {
+  switch (look.outfit) {
+    case 'stripes': return [HC.shirtA, HC.shirtB];
+    case 'labcoat': return [0xeef0f4, 0xbcc0cc];
+    default: return [HC.shirtA, HC.shirtAS];
+  }
+}
+
 function heroArm(c: PixelCanvas, s: number, b: number, back: boolean): void {
-  const sleeve = back ? HC.stripeK : HC.stripeW;
+  const sleeve = sleeves()[back ? 1 : 0];
   const hand = back ? HC.skinS : HC.skin;
   switch (s) {
     case -1: c.rect(6, 13 + b, 2, 2, sleeve); c.rect(4, 15 + b, 2, 2, hand); break;
@@ -79,39 +92,151 @@ function heroLeg(c: PixelCanvas, off: number, raise: number, back: boolean): voi
 }
 
 /**
- * Head + hat + eyewear, in "upright" coordinates (face x7..15, y6..11)
- * shifted by (ox, oy). Shared by run frames, the slide frame and the HUD icon.
+ * Torso in a w×h box at (x, y); (x + w - 1) is the chest/front side.
+ * Upright: 6×7 at (8, 12). Slide: 7×5 lying down.
+ */
+function heroTorso(c: PixelCanvas, x: number, y: number, w: number, h: number): void {
+  const A = HC.shirtA, B = HC.shirtB;
+  const f = x + w - 1; // front column
+  switch (look.outfit) {
+    case 'stripes':
+      for (let j = 0; j < h; j++) c.hline(x, y + j, w, (y + j) % 2 === 0 ? A : B);
+      break;
+    case 'solid':
+      c.rect(x, y, w, h, A);
+      c.vline(x, y, h, HC.shirtAS);
+      c.hline(x, y + h - 1, w, B); // belt / hem
+      break;
+    case 'tee':
+      c.rect(x, y, w, h, A);
+      c.hline(x + 1, y, w - 2, B); // collar
+      c.rect(f - 2, y + 2, 2, 2, B); // logo
+      break;
+    case 'hoodie':
+      c.rect(x, y, w, h, A);
+      c.rect(x - 1, y - 1, 3, 2, HC.shirtAS); // hood bunched at the neck
+      c.vline(f - 1, y + 1, 2, B); c.vline(f - 3, y + 1, 2, B); // strings
+      c.hline(x + 1, y + h - 2, w - 2, HC.shirtAS); // pocket
+      break;
+    case 'suit':
+      c.rect(x, y, w, h, A);
+      c.vline(x, y, h, HC.shirtAS);
+      c.rect(f - 2, y, 2, h - 2, 0xf4f4f4); // shirt front
+      c.vline(f - 1, y + 1, h - 3, B); // tie
+      c.set(f - 1, y, B);
+      break;
+    case 'labcoat':
+      c.rect(x, y, w, h, 0xeef0f4);
+      c.vline(x, y, h, 0xbcc0cc);
+      c.rect(f - 1, y, 2, h - 1, A); // shirt under the coat
+      c.set(f - 3, y + 2, B); // pen in the pocket
+      break;
+  }
+}
+
+/** Things worn on the back, drawn before the body. */
+function heroBack(c: PixelCanvas, b: number): void {
+  const G = HC.gear, GS = HC.gearS;
+  switch (look.extra) {
+    case 'backpack':
+      c.rect(4, 12 + b, 4, 6, G);
+      c.hline(4, 14 + b, 4, GS);
+      c.vline(4, 12 + b, 6, GS);
+      break;
+    case 'cape':
+      c.hline(6, 12 + b, 3, G);
+      c.rect(4, 13 + b, 4, 3, G);
+      c.rect(2, 16 + b, 5, 3, G);
+      c.rect(1, 19 + b, 5, 2, G);
+      c.vline(4, 15 + b, 4, GS);
+      break;
+  }
+}
+
+/** Things worn over the body, drawn after the torso. */
+function heroFront(c: PixelCanvas, b: number): void {
+  switch (look.extra) {
+    case 'backpack':
+      c.vline(9, 12 + b, 4, HC.gearS); // strap
+      break;
+    case 'scarf':
+      c.hline(8, 12 + b, 6, HC.gear);
+      c.rect(5, 12 + b, 3, 2, HC.gear); // tail flying back
+      c.set(4, 13 + b, HC.gearS);
+      break;
+  }
+}
+
+/**
+ * Head + headgear + eyewear + facial hair, in "upright" coordinates
+ * (face x7..15, y6..11) shifted by (ox, oy). Shared by run frames, the
+ * slide frame and the HUD icon.
  */
 function heroHead(c: PixelCanvas, ox: number, oy: number, o: { mouth?: boolean; dizzy?: boolean } = {}): void {
   const X = (x: number) => x + ox;
   const Y = (y: number) => y + oy;
+  const hair = HC.hair, hairL = HC.hairL, hat = HC.hat, hatL = HC.hatL, acc = HC.acc;
+
+  // hair that hangs behind the head
+  if (look.hat === 'long') { c.rect(X(5), Y(4), 3, 9, hair); c.vline(X(5), Y(12), 1, HC.hairS); }
+  if (look.hat === 'afro') { c.rect(X(4), Y(1), 12, 5, hair); c.rect(X(4), Y(5), 4, 5, hair); c.set(X(5), Y(2), hairL); c.set(X(9), Y(1), hairL); }
+
   c.rect(X(7), Y(6), 8, 6, HC.skin);
   c.vline(X(7), Y(6), 6, HC.skinS);
   c.set(X(15), Y(9), HC.skin);
   c.set(X(15), Y(10), HC.skinS);
   c.set(X(9), Y(9), HC.skinS);
 
-  // eyewear
-  let eye: number = O;
-  if (heroEyes === 'mask') { c.rect(X(9), Y(7), 7, 2, HC.mask); eye = HC.eye; }
-  else if (heroEyes === 'shades') { c.rect(X(10), Y(7), 6, 2, O); c.set(X(11), Y(7), 0x5a6d9a); c.set(X(14), Y(7), 0x5a6d9a); }
-  else if (heroEyes === 'glasses') {
-    c.rect(X(10), Y(7), 3, 2, 0xcfeaff); c.rect(X(13), Y(7), 3, 2, 0xcfeaff);
-    c.hline(X(10), Y(7), 6, O);
+  // facial hair (under the mouth)
+  switch (look.face) {
+    case 'mustache': c.hline(X(11), Y(9), 4, hair); c.set(X(15), Y(9), hair); break;
+    case 'beard':
+      c.rect(X(8), Y(9), 8, 3, hair); c.rect(X(9), Y(12), 6, 1, hair); c.set(X(12), Y(12), HC.hairS);
+      break;
+    case 'stubble':
+      for (const [x, y] of [[9, 10], [11, 11], [13, 11], [14, 10], [10, 11], [15, 10]]) c.set(X(x), Y(y), HC.skinS);
+      c.set(X(12), Y(11), shade(HC.skin, 0.7));
+      break;
   }
-  if (heroEyes !== 'shades') {
+  if (o.mouth) c.rect(X(12), Y(10), 2, 2, HC.mouth);
+  else if (look.face !== 'beard') c.hline(X(12), Y(10), 2, look.face === 'mustache' ? HC.skinS : HC.skinS);
+
+  // eyes + eyewear
+  let eye: number = O;
+  let drawEyes = true;
+  let leftEye = true;
+  switch (look.eyewear) {
+    case 'mask': c.rect(X(9), Y(7), 7, 2, HC.mask); eye = HC.eye; break;
+    case 'shades': c.rect(X(10), Y(7), 6, 2, O); c.set(X(11), Y(7), 0x5a6d9a); c.set(X(14), Y(7), 0x5a6d9a); drawEyes = false; break;
+    case 'glasses':
+      c.rect(X(10), Y(7), 3, 2, 0xcfeaff); c.rect(X(13), Y(7), 3, 2, 0xcfeaff);
+      c.hline(X(10), Y(7), 6, O);
+      break;
+    case 'visor':
+      c.rect(X(8), Y(7), 9, 2, 0x73eff7); c.hline(X(10), Y(7), 4, 0xc8fbff); c.set(X(8), Y(8), 0x257179);
+      drawEyes = false;
+      break;
+    case 'monocle':
+      c.rect(X(13), Y(7), 3, 3, 0xffcd3c); c.set(X(14), Y(8), 0xcfeaff); c.vline(X(13), Y(10), 2, 0xc98a1b);
+      break;
+    case 'eyepatch':
+      c.hline(X(7), Y(6), 6, O); c.rect(X(13), Y(7), 2, 2, O);
+      leftEye = false;
+      break;
+  }
+  if (drawEyes) {
     if (o.dizzy) {
-      c.set(X(11), Y(7), eye); c.set(X(12), Y(8), eye);
+      if (leftEye) { c.set(X(11), Y(7), eye); c.set(X(12), Y(8), eye); }
       c.set(X(14), Y(7), eye); c.set(X(13), Y(8), eye);
     } else {
-      c.set(X(11), Y(8), eye); c.set(X(14), Y(8), eye);
+      if (leftEye) c.set(X(11), Y(8), eye);
+      if (look.eyewear !== 'eyepatch') c.set(X(14), Y(8), eye);
     }
   }
-  if (o.mouth) c.rect(X(12), Y(10), 2, 2, HC.mouth); else c.hline(X(12), Y(10), 2, HC.skinS);
 
   // headgear
-  const hat = HC.beanie, hatL = HC.beanieL, acc = HC.pom;
-  switch (heroHat) {
+  const bald = () => { c.rect(X(7), Y(4), 8, 2, HC.skin); c.hline(X(8), Y(3), 6, HC.skin); c.vline(X(7), Y(4), 2, HC.skinS); };
+  switch (look.hat) {
     case 'beanie':
       c.hline(X(8), Y(2), 6, hat);
       c.rect(X(7), Y(3), 8, 3, hat);
@@ -124,24 +249,74 @@ function heroHead(c: PixelCanvas, ox: number, oy: number, o: { mouth?: boolean; 
       c.hline(X(9), Y(3), 4, hatL);
       c.hline(X(11), Y(5), 7, acc);
       c.set(X(11), Y(2), acc);
+      c.vline(X(7), Y(6), 2, hair);
       break;
     case 'hair':
-      c.rect(X(7), Y(3), 8, 3, hat);
-      c.vline(X(7), Y(6), 3, hat);
-      c.set(X(8), Y(2), hat); c.set(X(10), Y(1), hat); c.set(X(10), Y(2), hat);
-      c.set(X(12), Y(2), hat); c.set(X(13), Y(1), hat); c.set(X(14), Y(2), hat);
-      c.hline(X(9), Y(3), 4, hatL);
+      c.rect(X(7), Y(3), 8, 3, hair);
+      c.vline(X(7), Y(6), 3, hair);
+      c.set(X(8), Y(2), hair); c.set(X(10), Y(1), hair); c.set(X(10), Y(2), hair);
+      c.set(X(12), Y(2), hair); c.set(X(13), Y(1), hair); c.set(X(14), Y(2), hair);
+      c.hline(X(9), Y(3), 4, hairL);
+      break;
+    case 'long':
+      c.rect(X(7), Y(3), 8, 3, hair);
+      c.hline(X(8), Y(2), 6, hair);
+      c.vline(X(7), Y(6), 4, hair);
+      c.hline(X(13), Y(6), 3, hair); // bangs
+      c.hline(X(9), Y(3), 4, hairL);
+      break;
+    case 'mohawk':
+      bald();
+      c.rect(X(9), Y(0), 3, 4, hair);
+      c.hline(X(9), Y(0), 3, acc);
+      c.set(X(10), Y(1), HC.hairL);
+      c.vline(X(7), Y(6), 2, HC.skinS);
+      break;
+    case 'afro':
+      c.rect(X(7), Y(3), 9, 3, hair);
+      c.hline(X(13), Y(6), 3, hair);
+      c.vline(X(7), Y(6), 4, hair);
+      c.set(X(12), Y(2), hairL);
       break;
     case 'headband':
-      c.rect(X(7), Y(3), 8, 2, acc);
-      c.hline(X(8), Y(2), 6, acc);
+      c.rect(X(7), Y(3), 8, 2, hair);
+      c.hline(X(8), Y(2), 6, hair);
       c.hline(X(7), Y(5), 9, hat);
       c.hline(X(4), Y(5), 3, hat); c.set(X(4), Y(6), hat);
       break;
+    case 'tophat':
+      c.rect(X(8), Y(0), 7, 5, hat);
+      c.hline(X(8), Y(3), 7, acc); // band
+      c.vline(X(9), Y(0), 3, hatL);
+      c.hline(X(6), Y(5), 11, hat);
+      c.vline(X(7), Y(6), 2, hair);
+      break;
+    case 'cowboy':
+      c.rect(X(8), Y(1), 7, 4, hat);
+      c.set(X(11), Y(1), HC.hatS); // dent
+      c.hline(X(8), Y(4), 7, acc); // band
+      c.hline(X(4), Y(5), 15, hat);
+      c.set(X(4), Y(4), hat); c.set(X(18), Y(4), hat);
+      c.hline(X(9), Y(2), 2, hatL);
+      break;
+    case 'crown':
+      c.rect(X(7), Y(4), 8, 2, hair);
+      c.rect(X(8), Y(2), 7, 3, hat);
+      c.set(X(8), Y(1), hat); c.set(X(11), Y(1), hat); c.set(X(14), Y(1), hat);
+      c.set(X(11), Y(0), hatL);
+      c.set(X(9), Y(3), acc); c.set(X(11), Y(3), acc); c.set(X(13), Y(3), acc);
+      c.vline(X(7), Y(6), 2, hair);
+      break;
+    case 'helmet':
+      c.hline(X(8), Y(1), 7, hat);
+      c.rect(X(7), Y(2), 9, 4, hat);
+      c.vline(X(6), Y(3), 6, hat);
+      c.rect(X(10), Y(1), 2, 4, acc); // racing stripe
+      c.hline(X(8), Y(2), 2, HC.hatL);
+      c.vline(X(6), Y(6), 3, HC.hatS); // chin strap side
+      break;
     case 'none':
-      c.rect(X(7), Y(4), 8, 2, HC.skin);
-      c.hline(X(8), Y(3), 6, HC.skin);
-      c.vline(X(7), Y(4), 2, HC.skinS);
+      bald();
       break;
   }
 }
@@ -149,10 +324,13 @@ function heroHead(c: PixelCanvas, ox: number, oy: number, o: { mouth?: boolean; 
 function heroUpright(o: HeroPose): PixelCanvas {
   const c = new PixelCanvas(22, 28);
   const b = o.bob ?? 0;
+  heroBack(c, b);
   heroLeg(c, o.legB, o.raiseB ?? 0, true);
   heroArm(c, o.armB, b, true);
   c.rect(9, 19 + b, 5, 2, HC.pants);
-  for (let y = 12; y <= 18; y++) c.hline(8, y + b, 6, y % 2 === 0 ? HC.stripeW : HC.stripeK);
+  heroTorso(c, 8, 12 + b, 6, 7);
+  if (look.outfit === 'labcoat') c.rect(8, 19 + b, 3, 2, 0xeef0f4); // coat tails
+  heroFront(c, b);
   heroHead(c, 0, b, o);
   heroLeg(c, o.legF, o.raiseF ?? 0, false);
   heroArm(c, o.armF, b, false);
@@ -161,24 +339,27 @@ function heroUpright(o: HeroPose): PixelCanvas {
 
 function heroSlide(): PixelCanvas {
   const c = new PixelCanvas(22, 28);
+  if (look.extra === 'cape') { c.rect(2, 22, 8, 3, HC.gear); c.hline(1, 25, 8, HC.gearS); }
+  if (look.extra === 'backpack') c.rect(9, 25, 6, 2, HC.gear);
   // raised arm holding the hanky
-  c.rect(10, 18, 2, 3, HC.stripeK);
+  c.rect(10, 18, 2, 3, sleeves()[1]);
   c.rect(10, 16, 2, 2, HC.skinS);
   // torso (lying back)
-  for (let y = 21; y <= 25; y++) c.hline(9, y, 7, y % 2 === 0 ? HC.stripeW : HC.stripeK);
+  heroTorso(c, 9, 21, 7, 5);
+  if (look.extra === 'scarf') { c.vline(9, 21, 3, HC.gear); c.rect(6, 19, 3, 2, HC.gear); }
   // legs forward + shoes toes up
   c.rect(16, 23, 4, 3, HC.pants);
   c.rect(19, 21, 2, 5, HC.shoe);
   heroHead(c, -5, 13);
   // front arm on ground
-  c.rect(13, 20, 3, 2, HC.stripeW);
+  c.rect(13, 20, 3, 2, sleeves()[0]);
   c.rect(15, 19, 2, 2, HC.skin);
   return c.outline(O);
 }
 
 function heroIcon(): PixelCanvas {
-  const hh = new PixelCanvas(14, 12);
-  heroHead(hh, -4, -1);
+  const hh = new PixelCanvas(16, 14);
+  heroHead(hh, -3, 1);
   return hh.outline(O);
 }
 
@@ -232,6 +413,17 @@ function redraw(scene: Phaser.Scene, key: string, pc: PixelCanvas): void {
 export function applyCharacter(scene: Phaser.Scene, spec: CharacterSpec): void {
   setLook(spec);
   buildHero(scene);
+}
+
+/**
+ * Standalone standing-pose canvas for a spec (used by the preset picker),
+ * without touching the live hero look.
+ */
+export function heroPortrait(spec: CharacterSpec, active: CharacterSpec): HTMLCanvasElement {
+  setLook(spec);
+  const pc = heroUpright({ legF: 1, legB: -1, armF: 0, armB: -1 });
+  setLook(active);
+  return pc.toCanvas();
 }
 
 /* --------------------------------------------------------------- CHASER */

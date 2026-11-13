@@ -5,6 +5,9 @@ import { txt } from '../gfx/font';
 import { applyCharacter, HERO_HAND, HANKY_ORIGIN } from '../gfx/sprites';
 import { CharacterPanel } from '../ui/characterPanel';
 import { createCharacter, getCharacter, setCharacter } from '../character/agentClient';
+import { randomCharacter } from '../character/offline';
+import { normalizeSpec } from '../character/spec';
+import { FONT_CHARS } from '../gfx/font';
 import type { CharacterSpec } from '../character/spec';
 import { sfx } from '../audio/Sfx';
 
@@ -12,7 +15,7 @@ let lastPrompt = '';
 const PX = 112; // preview x (left side, the panel sits on the right)
 const S = 3;    // preview scale
 
-/** Character creation: description in → agent → CharacterSpec out → live sprite preview. */
+/** Character creation: presets / description → agent / manual edits → CharacterSpec → live sprite preview. */
 export class CreateScene extends Phaser.Scene {
   private panel?: CharacterPanel;
   private hero!: Phaser.GameObjects.Sprite;
@@ -41,9 +44,11 @@ export class CreateScene extends Phaser.Scene {
 
     this.panel = new CharacterPanel({
       onGenerate: (p) => this.generate(p),
+      onRandom: () => this.pick(randomCharacter(), 'Rolled a random runner. Roll again or tweak below.'),
+      onChange: (c) => this.apply(normalizeSpec(c, FONT_CHARS), false),
       onStart: () => this.leave('Intro'),
       onBack: () => this.leave('Title')
-    }, lastPrompt);
+    }, lastPrompt, getCharacter());
     this.show(getCharacter());
     this.game.scale.refresh();
 
@@ -64,15 +69,29 @@ export class CreateScene extends Phaser.Scene {
     lastPrompt = prompt;
     const id = ++this.reqId;
     this.panel?.setBusy(true);
-    this.panel?.setStatus('에이전트가 캐릭터를 디자인하는 중…');
-    const { character, source } = await createCharacter(prompt);
+    this.panel?.setStatus('The agent is designing your runner…');
+    const { character, source, reason } = await createCharacter(prompt);
     if (id !== this.reqId || !this.panel) return; // scene left or newer request
     this.panel.setBusy(false);
-    this.panel.setStatus(source === 'ai'
-      ? '완성! 마음에 들면 START, 아니면 다시 생성하세요.'
-      : 'AI 연결 실패 → 오프라인 생성기로 만들었어요.', source !== 'ai');
-    setCharacter(character);
-    this.show(character);
+    const msg = source === 'ai'
+      ? 'Done! Tweak it below, regenerate, or hit START.'
+      : reason === 'billing'
+        ? 'AI offline (Vercel AI Gateway needs billing) → used the built-in generator.'
+        : 'AI unreachable → used the built-in generator.';
+    this.pick(character, msg, source !== 'ai');
+  }
+
+  /** A whole new spec (AI result, random roll): rebuild the form and pop the sprite. */
+  private pick(c: CharacterSpec, msg: string, warn = false): void {
+    this.panel?.setStatus(msg, warn);
+    this.panel?.setSpec(c);
+    this.apply(c, true);
+  }
+
+  private apply(c: CharacterSpec, pop: boolean): void {
+    setCharacter(c);
+    this.show(c);
+    if (!pop) return;
     sfx.click();
     this.tweens.add({ targets: this.hero, scale: { from: S * 1.25, to: S }, duration: 260, ease: 'Back.out' });
   }
@@ -82,7 +101,6 @@ export class CreateScene extends Phaser.Scene {
     this.nameT.setText(c.name);
     this.titleT.setText(c.title);
     this.quoteT.setText(`"${c.catchphrase}"`);
-    this.panel?.showOutput(c);
   }
 
   private leave(to: 'Intro' | 'Title'): void {
